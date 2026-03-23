@@ -1,0 +1,102 @@
+# =========================================================
+# 基础设置
+# =========================================================
+mixed-port: 7890
+allow-left: true
+mode: rule
+log-level: info
+ipv6: false
+
+# TUN 模式配置
+tun:
+  enable: true
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
+  dns-hijack:
+    - any:53
+
+# DNS 策略
+dns:
+  enable: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  nameserver:
+    - 223.5.5.5
+    - 119.29.29.29
+  # 动态 DNS 路由：针对特定的规则集走特定的 DNS
+  nameserver-policy:
+    "rule-set:proxy_list,google_list": [https://8.8.8.8/dns-query]
+    "rule-set:direct_list": [223.5.5.5, 119.29.29.29]
+
+# =========================================================
+# 代理节点定义 (指向 Gluetun 容器)
+# =========================================================
+proxies:
+  - name: "VPN-Tunnel"
+    type: socks5
+    server: 127.0.0.1
+    port: 1080
+
+proxy-groups:
+  - name: GLOBAL-OUT
+    type: select
+    proxies:
+      - "VPN-Tunnel"
+      - DIRECT
+
+# =========================================================
+# Rule Providers (动态规则集外挂)
+# =========================================================
+rule-providers:
+  # 1. 自动更新的国外主流网站列表
+  proxy_list:
+    type: http
+    behavior: domain
+    url: "https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/proxy.txt"
+    path: ./ruleset/proxy.yaml
+    interval: 86400
+
+  # 2. 自动更新的国内直连列表
+  direct_list:
+    type: http
+    behavior: domain
+    url: "https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/direct.txt"
+    path: ./ruleset/direct.yaml
+    interval: 86400
+
+  # 3. 自动更新的 Google 服务列表
+  google_list:
+    type: http
+    behavior: domain
+    url: "https://raw.githubusercontent.com/Loyalsoldier/clash-rules/release/google.txt"
+    path: ./ruleset/google.yaml
+    interval: 86400
+
+  # 4. 你的私有动态列表 (例如你放在 GitHub Gist 上的公司域名)
+  my_special_list:
+    type: http
+    behavior: domain
+    url: "https://your-gist-link.com/custom.txt" # 替换为你自己的链接
+    path: ./ruleset/custom.yaml
+    interval: 3600
+
+# =========================================================
+# 分流规则
+# =========================================================
+rules:
+  # 1. 优先匹配你的私有列表
+  - RULE-SET,my_special_list,GLOBAL-OUT
+  
+  # 2. 匹配 Google/Github 等知名国外服务
+  - RULE-SET,google_list,GLOBAL-OUT
+  - RULE-SET,proxy_list,GLOBAL-OUT
+  
+  # 3. 匹配国内直连列表
+  - RULE-SET,direct_list,DIRECT
+  
+  # 4. 基于 IP 的分流（防止漏网之鱼）
+  - GEOIP,CN,DIRECT
+  
+  # 5. 兜底
+  - MATCH,GLOBAL-OUT
